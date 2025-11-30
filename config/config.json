@@ -1,5 +1,6 @@
 {
   "broker_type": "tradier",
+  "strategy": "cs",
   "symbols": [
     "NVDA",
     "GOOGL",
@@ -9,6 +10,10 @@
   "strike_offset_percent": 5.0,
   "spread_width": 5.0,
   "contract_quantity": 1,
+  "collar_put_offset_percent": 5.0,
+  "collar_call_offset_percent": 5.0,
+  "collar_shares_per_symbol": 100,
+  "run_immediately": true,
   "execution_day": "Daily",
   "execution_time_offset_minutes": 30,
   "expiration_offset_weeks": 1,

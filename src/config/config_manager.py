@@ -78,16 +78,21 @@ class ConfigManager:
         try:
             config = Config(
                 symbols=config_data.get('symbols', []),
+                strategy=config_data.get('strategy', 'pcs'),
                 strike_offset_percent=float(config_data.get('strike_offset_percent', 5.0)),
                 spread_width=float(config_data.get('spread_width', 5.0)),
                 contract_quantity=int(config_data.get('contract_quantity', 1)),
+                run_immediately=config_data.get('run_immediately', False),
                 execution_day=config_data.get('execution_day', 'Tuesday'),
                 execution_time_offset_minutes=int(config_data.get('execution_time_offset_minutes', 30)),
                 expiration_offset_weeks=int(config_data.get('expiration_offset_weeks', 1)),
                 broker_type=broker_type,
                 alpaca_credentials=alpaca_credentials,
                 tradier_credentials=tradier_credentials,
-                logging_config=logging_config
+                logging_config=logging_config,
+                collar_put_offset_percent=float(config_data.get('collar_put_offset_percent', 5.0)),
+                collar_call_offset_percent=float(config_data.get('collar_call_offset_percent', 5.0)),
+                collar_shares_per_symbol=int(config_data.get('collar_shares_per_symbol', 100))
             )
         except (ValueError, TypeError) as e:
             raise ValueError(

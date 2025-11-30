@@ -71,9 +71,11 @@ class LoggingConfig:
 class Config:
     """Main configuration for the trading bot."""
     symbols: List[str]
+    strategy: str  # "pcs" (put credit spread) or "cs" (collar)
     strike_offset_percent: float
     spread_width: float
     contract_quantity: int
+    run_immediately: bool  # If true, ignore execution_day and time, run right away
     execution_day: str
     execution_time_offset_minutes: int
     expiration_offset_weeks: int
@@ -81,6 +83,11 @@ class Config:
     alpaca_credentials: Optional[AlpacaCredentials]
     tradier_credentials: Optional[TradierCredentials]
     logging_config: LoggingConfig
+    
+    # Collar-specific settings (optional)
+    collar_put_offset_percent: float = 5.0  # How far below price for protective put
+    collar_call_offset_percent: float = 5.0  # How far above price for covered call
+    collar_shares_per_symbol: int = 100  # Shares owned per symbol
     
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate the entire configuration.

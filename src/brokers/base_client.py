@@ -128,3 +128,20 @@ class BaseBrokerClient(ABC):
             Broker name string
         """
         pass
+    
+    @abstractmethod
+    def submit_collar_order(self, symbol: str, put_strike: float, call_strike: float,
+                           expiration: date, num_collars: int) -> OrderResult:
+        """Submit a collar order (protective put + covered call).
+        
+        Args:
+            symbol: Stock symbol
+            put_strike: Strike price for protective put
+            call_strike: Strike price for covered call
+            expiration: Option expiration date
+            num_collars: Number of collars (1 collar = 100 shares + 1 put + 1 call)
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        pass

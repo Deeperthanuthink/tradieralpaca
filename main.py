@@ -71,8 +71,10 @@ def main():
     
     print("Trading bot initialized successfully")
     
-    # Handle --once option: run single execution without scheduler
-    if args.once:
+    # Handle --once option or run_immediately config: run single execution without scheduler
+    if args.once or trading_bot.config.run_immediately:
+        if trading_bot.config.run_immediately:
+            print("\nRUN IMMEDIATELY mode enabled in config - ignoring schedule")
         print("\nRunning single trading cycle...")
         try:
             summary = trading_bot.execute_trading_cycle()

@@ -9,6 +9,7 @@ from src.config.models import Config
 from src.brokers.broker_factory import BrokerFactory
 from src.brokers.base_client import BaseBrokerClient
 from src.strategy.strategy_calculator import StrategyCalculator, SpreadParameters
+from src.strategy.collar_strategy import CollarCalculator, CollarParameters
 from src.order.order_manager import OrderManager, TradeResult
 from src.logging.bot_logger import BotLogger
 
@@ -40,6 +41,7 @@ class TradingBot:
         self.logger: Optional[BotLogger] = None
         self.broker_client: Optional[BaseBrokerClient] = None
         self.strategy_calculator: Optional[StrategyCalculator] = None
+        self.collar_calculator: Optional[CollarCalculator] = None
         self.order_manager: Optional[OrderManager] = None
         self._initialized = False
     
@@ -97,9 +99,17 @@ class TradingBot:
                 self.logger.log_error(f"Failed to authenticate with {broker_type} API")
                 return False
             
-            # Initialize strategy calculator
+            # Initialize strategy calculators
             self.strategy_calculator = StrategyCalculator(self.config)
-            self.logger.log_info("Strategy calculator initialized")
+            self.collar_calculator = CollarCalculator(
+                put_offset_percent=self.config.collar_put_offset_percent,
+                call_offset_percent=self.config.collar_call_offset_percent
+            )
+            strategy_name = "Put Credit Spread" if self.config.strategy == "pcs" else "Collar"
+            self.logger.log_info(
+                f"Strategy calculators initialized ({strategy_name})",
+                {"strategy": self.config.strategy}
+            )
             
             # Initialize order manager
             self.order_manager = OrderManager(
@@ -257,7 +267,13 @@ class TradingBot:
         for symbol in valid_symbols:
             try:
                 self.logger.log_info(f"Processing symbol: {symbol}")
-                trade_result = self.process_symbol(symbol)
+                
+                # Route to appropriate strategy
+                if self.config.strategy == 'cs':  # Collar Strategy
+                    trade_result = self.process_collar_symbol(symbol)
+                else:  # pcs = Put Credit Spread (default)
+                    trade_result = self.process_symbol(symbol)
+                    
                 trade_results.append(trade_result)
                 
             except Exception as e:
@@ -783,6 +799,139 @@ class TradingBot:
                 long_strike=0.0,
                 expiration=date.today(),
                 quantity=self.config.contract_quantity,
+                filled_price=None,
+                error_message=error_msg,
+                timestamp=timestamp
+            )
+    
+    def process_collar_symbol(self, symbol: str) -> TradeResult:
+        """Process a single symbol using collar strategy.
+        
+        Collar strategy:
+        1. Assumes you own 100 shares of the stock
+        2. Buys a protective put (downside protection)
+        3. Sells a covered call (income generation)
+        
+        Args:
+            symbol: Stock symbol to process
+            
+        Returns:
+            TradeResult with execution details
+        """
+        timestamp = datetime.now()
+        
+        try:
+            # Get current market price
+            self.logger.log_info(f"Fetching current price for {symbol} (Collar Strategy)")
+            current_price = self.broker_client.get_current_price(symbol)
+            self.logger.log_info(
+                f"Current price for {symbol}: ${current_price:.2f}",
+                {"symbol": symbol, "price": current_price, "strategy": "collar"}
+            )
+            
+            # Calculate collar parameters
+            self.logger.log_info(f"Calculating collar parameters for {symbol}")
+            
+            # Calculate target strikes
+            put_strike_target = self.collar_calculator.calculate_put_strike(current_price)
+            call_strike_target = self.collar_calculator.calculate_call_strike(current_price)
+            
+            # Calculate expiration
+            expiration = self.strategy_calculator.calculate_expiration_date(
+                execution_date=date.today(),
+                offset_weeks=self.config.expiration_offset_weeks
+            )
+            
+            self.logger.log_info(
+                f"Calculated collar targets for {symbol}",
+                {
+                    "symbol": symbol,
+                    "put_target": f"${put_strike_target:.2f}",
+                    "call_target": f"${call_strike_target:.2f}",
+                    "expiration": expiration.isoformat()
+                }
+            )
+            
+            # Get option chain
+            self.logger.log_info(f"Retrieving option chain for {symbol}")
+            option_chain = self.broker_client.get_option_chain(symbol, expiration)
+            available_strikes = sorted(list(set([contract.strike for contract in option_chain])))
+            
+            self.logger.log_info(
+                f"Retrieved {len(available_strikes)} available strikes for {symbol}",
+                {"symbol": symbol, "strike_count": len(available_strikes)}
+            )
+            
+            # Find actual strikes
+            put_strike = self.collar_calculator.find_nearest_strike_below(
+                put_strike_target, available_strikes
+            )
+            call_strike = self.collar_calculator.find_nearest_strike_above(
+                call_strike_target, available_strikes
+            )
+            
+            self.logger.log_info(
+                f"Selected collar strikes for {symbol}",
+                {
+                    "symbol": symbol,
+                    "put_strike": f"${put_strike:.2f}",
+                    "call_strike": f"${call_strike:.2f}",
+                    "protection_range": f"${put_strike:.2f} - ${call_strike:.2f}"
+                }
+            )
+            
+            # Calculate number of collars
+            num_collars = self.collar_calculator.calculate_num_collars(
+                self.config.collar_shares_per_symbol
+            )
+            
+            # Create collar parameters
+            collar_params = CollarParameters(
+                symbol=symbol,
+                current_price=current_price,
+                shares_owned=self.config.collar_shares_per_symbol,
+                put_strike=put_strike,
+                put_expiration=expiration,
+                call_strike=call_strike,
+                call_expiration=expiration,
+                num_collars=num_collars
+            )
+            
+            # Validate collar parameters
+            self.collar_calculator.validate_collar_parameters(collar_params)
+            
+            # Submit collar order
+            self.logger.log_info(f"Submitting collar order for {symbol}")
+            trade_result = self.order_manager.submit_collar_order(
+                symbol=symbol,
+                put_strike=put_strike,
+                call_strike=call_strike,
+                expiration=expiration,
+                num_collars=num_collars
+            )
+            
+            return trade_result
+            
+        except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            self.logger.log_error(
+                f"Unexpected error processing collar for {symbol}",
+                e,
+                {
+                    "symbol": symbol,
+                    "error_type": type(e).__name__,
+                    "timestamp": timestamp.isoformat()
+                }
+            )
+            
+            return TradeResult(
+                symbol=symbol,
+                success=False,
+                order_id=None,
+                short_strike=0.0,
+                long_strike=0.0,
+                expiration=date.today(),
+                quantity=0,
                 filled_price=None,
                 error_message=error_msg,
                 timestamp=timestamp

@@ -499,3 +499,88 @@ class OrderManager:
         }
         
         self.logger.log_trade(trade_dict)
+    
+    def submit_collar_order(self, symbol: str, put_strike: float, call_strike: float,
+                           expiration: date, num_collars: int) -> TradeResult:
+        """Submit a collar order with error handling.
+        
+        Args:
+            symbol: Stock symbol
+            put_strike: Strike price for protective put
+            call_strike: Strike price for covered call
+            expiration: Option expiration date
+            num_collars: Number of collars
+            
+        Returns:
+            TradeResult with execution details
+        """
+        timestamp = datetime.now()
+        
+        try:
+            if self.dry_run:
+                self.logger.log_info(
+                    f"[DRY-RUN] Simulating collar order for {symbol}",
+                    {
+                        "symbol": symbol,
+                        "put_strike": put_strike,
+                        "call_strike": call_strike,
+                        "num_collars": num_collars,
+                        "dry_run": True
+                    }
+                )
+                
+                result = OrderResult(
+                    success=True,
+                    order_id=f"DRY-RUN-COLLAR-{symbol}-{timestamp.strftime('%Y%m%d%H%M%S')}",
+                    status="simulated",
+                    error_message=None
+                )
+            else:
+                # Submit collar order through broker client
+                result = self.broker_client.submit_collar_order(
+                    symbol=symbol,
+                    put_strike=put_strike,
+                    call_strike=call_strike,
+                    expiration=expiration,
+                    num_collars=num_collars
+                )
+            
+            # Create trade result
+            trade_result = TradeResult(
+                symbol=symbol,
+                success=result.success,
+                order_id=result.order_id,
+                short_strike=put_strike,  # Using put strike as "short"
+                long_strike=call_strike,  # Using call strike as "long"
+                expiration=expiration,
+                quantity=num_collars,
+                filled_price=None,
+                error_message=result.error_message,
+                timestamp=timestamp
+            )
+            
+            # Log the trade result
+            self._log_trade_result(trade_result)
+            
+            return trade_result
+            
+        except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            self.logger.log_error(
+                f"Collar order submission failed for {symbol}: {error_msg}",
+                e,
+                {"symbol": symbol}
+            )
+            
+            return TradeResult(
+                symbol=symbol,
+                success=False,
+                order_id=None,
+                short_strike=put_strike,
+                long_strike=call_strike,
+                expiration=expiration,
+                quantity=num_collars,
+                filled_price=None,
+                error_message=error_msg,
+                timestamp=timestamp
+            )

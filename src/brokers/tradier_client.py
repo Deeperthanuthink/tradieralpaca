@@ -499,6 +499,139 @@ class TradierClient(BaseBrokerClient):
                 error_message=str(e)
             )
     
+    def submit_collar_order(self, symbol: str, put_strike: float, call_strike: float,
+                           expiration: date, num_collars: int) -> OrderResult:
+        """Submit a collar order to Tradier.
+        
+        A collar consists of:
+        - Buy protective put (downside protection)
+        - Sell covered call (income generation)
+        
+        Args:
+            symbol: Stock symbol
+            put_strike: Strike price for protective put
+            call_strike: Strike price for covered call
+            expiration: Option expiration date
+            num_collars: Number of collars to create
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            # Format expiration
+            expiration_str = expiration.strftime('%y%m%d')
+            
+            # Construct option symbols
+            put_strike_str = f"{int(put_strike * 1000):08d}"
+            call_strike_str = f"{int(call_strike * 1000):08d}"
+            
+            put_symbol = f"{symbol}{expiration_str}P{put_strike_str}"
+            call_symbol = f"{symbol}{expiration_str}C{call_strike_str}"
+            
+            # Submit two separate orders (Tradier doesn't support 3-leg orders easily)
+            import requests
+            base_url = 'https://sandbox.tradier.com' if self.is_sandbox else 'https://api.tradier.com'
+            
+            # Order 1: Buy protective put
+            put_order_data = {
+                'class': 'option',
+                'symbol': symbol,
+                'option_symbol': put_symbol,
+                'side': 'buy_to_open',
+                'quantity': num_collars,
+                'type': 'market',
+                'duration': 'gtc'
+            }
+            
+            put_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=put_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Order 2: Sell covered call
+            call_order_data = {
+                'class': 'option',
+                'symbol': symbol,
+                'option_symbol': call_symbol,
+                'side': 'sell_to_open',
+                'quantity': num_collars,
+                'type': 'market',
+                'duration': 'gtc'
+            }
+            
+            call_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=call_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Check if both orders succeeded
+            if put_response.status_code in [200, 201] and call_response.status_code in [200, 201]:
+                put_data = put_response.json()
+                call_data = call_response.json()
+                
+                put_order_id = put_data.get('order', {}).get('id')
+                call_order_id = call_data.get('order', {}).get('id')
+                
+                result = OrderResult(
+                    success=True,
+                    order_id=f"PUT:{put_order_id}_CALL:{call_order_id}",
+                    status="submitted",
+                    error_message=None
+                )
+                
+                if self.logger:
+                    self.logger.log_info(
+                        f"Successfully submitted collar order for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "put_order_id": put_order_id,
+                            "call_order_id": call_order_id,
+                            "put_strike": put_strike,
+                            "call_strike": call_strike,
+                            "num_collars": num_collars,
+                            "strategy": "collar"
+                        }
+                    )
+                
+                return result
+            else:
+                error_msg = f"Collar order failed - Put: {put_response.status_code}, Call: {call_response.status_code}"
+                
+                if self.logger:
+                    self.logger.log_error(
+                        f"Collar order rejected for {symbol}: {error_msg}",
+                        None,
+                        {"symbol": symbol, "put_response": put_response.text, "call_response": call_response.text}
+                    )
+                
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    status="rejected",
+                    error_message=error_msg
+                )
+                
+        except Exception as e:
+            error_msg = f"Unexpected error submitting collar for {symbol}: {str(e)}"
+            
+            if self.logger:
+                self.logger.log_error(error_msg, e, {"symbol": symbol})
+            
+            return OrderResult(
+                success=False,
+                order_id=None,
+                status="error",
+                error_message=str(e)
+            )
+    
     def get_account_info(self) -> AccountInfo:
         """Get account information from Tradier via Lumibot.
         
