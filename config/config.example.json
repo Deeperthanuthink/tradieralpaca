@@ -1,0 +1,23 @@
+{
+  "symbols": [
+    "NVDA",
+    "GOOGL",
+    "AAPL",
+    "MSFT"
+  ],
+  "strike_offset_percent": 5.0,
+  "spread_width": 5.0,
+  "contract_quantity": 1,
+  "execution_day": "Wednesday",
+  "execution_time_offset_minutes": 30,
+  "expiration_offset_weeks": 1,
+  "tradier": {
+    "api_token": "${TRADIER_API_TOKEN}",
+    "account_id": "${TRADIER_ACCOUNT_ID}",
+    "base_url": "https://sandbox.tradier.com"
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/trading_bot.log"
+  }
+}
