@@ -502,3 +502,140 @@ class AlpacaClient(BaseBrokerClient):
             if self.logger:
                 self.logger.log_error(f"Butterfly failed for {symbol}: {str(e)}", e)
             return OrderResult(success=False, order_id=None, status="error", error_message=str(e))
+
+
+    def submit_married_put_order(self, symbol: str, shares: int, put_strike: float,
+                                 expiration: date) -> OrderResult:
+        """Submit a married put order to Alpaca.
+        
+        A married put consists of:
+        1. Buy shares of stock
+        2. Buy protective put option
+        
+        Args:
+            symbol: Stock symbol
+            shares: Number of shares to buy (typically 100)
+            put_strike: Strike price for protective put
+            expiration: Option expiration date
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            # Order 1: Buy shares
+            stock_asset = Asset(symbol=symbol, asset_type="stock")
+            stock_order = self.broker.create_order(stock_asset, shares, "buy", "market")
+            stock_result = self.broker.submit_order(stock_order)
+            
+            # Order 2: Buy protective put
+            expiration_str = expiration.strftime('%y%m%d')
+            put_strike_str = f"{int(put_strike * 1000):08d}"
+            put_symbol = f"{symbol}{expiration_str}P{put_strike_str}"
+            
+            num_contracts = shares // 100  # 1 put per 100 shares
+            
+            put_asset = Asset(symbol=put_symbol, asset_type="option")
+            put_order = self.broker.create_order(put_asset, num_contracts, "buy", "market")
+            put_result = self.broker.submit_order(put_order)
+            
+            if stock_result and put_result:
+                result = OrderResult(
+                    success=True,
+                    order_id=f"STOCK:{stock_result.identifier}_PUT:{put_result.identifier}",
+                    status="submitted",
+                    error_message=None
+                )
+                
+                if self.logger:
+                    self.logger.log_info(
+                        f"Married put order submitted for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "shares": shares,
+                            "put_strike": put_strike,
+                            "expiration": expiration.isoformat(),
+                            "strategy": "married_put"
+                        }
+                    )
+                return result
+            else:
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    status="rejected",
+                    error_message="Failed to submit one or both legs of married put"
+                )
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error(f"Error submitting married put for {symbol}: {str(e)}", e)
+            return OrderResult(success=False, order_id=None, status="error", error_message=str(e))
+
+
+    def submit_long_straddle_order(self, symbol: str, strike: float,
+                                   expiration: date, num_contracts: int) -> OrderResult:
+        """Submit a long straddle order to Alpaca.
+        
+        A long straddle consists of:
+        1. Buy ATM call option
+        2. Buy ATM put option (same strike)
+        
+        Args:
+            symbol: Stock symbol
+            strike: ATM strike price for both call and put
+            expiration: Option expiration date
+            num_contracts: Number of straddles to buy
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            # Format expiration and strike
+            expiration_str = expiration.strftime('%y%m%d')
+            strike_str = f"{int(strike * 1000):08d}"
+            
+            call_symbol = f"{symbol}{expiration_str}C{strike_str}"
+            put_symbol = f"{symbol}{expiration_str}P{strike_str}"
+            
+            # Order 1: Buy call
+            call_asset = Asset(symbol=call_symbol, asset_type="option")
+            call_order = self.broker.create_order(call_asset, num_contracts, "buy", "market")
+            call_result = self.broker.submit_order(call_order)
+            
+            # Order 2: Buy put
+            put_asset = Asset(symbol=put_symbol, asset_type="option")
+            put_order = self.broker.create_order(put_asset, num_contracts, "buy", "market")
+            put_result = self.broker.submit_order(put_order)
+            
+            if call_result and put_result:
+                result = OrderResult(
+                    success=True,
+                    order_id=f"CALL:{call_result.identifier}_PUT:{put_result.identifier}",
+                    status="submitted",
+                    error_message=None
+                )
+                
+                if self.logger:
+                    self.logger.log_info(
+                        f"Long straddle order submitted for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "strike": strike,
+                            "expiration": expiration.isoformat(),
+                            "num_contracts": num_contracts,
+                            "strategy": "long_straddle"
+                        }
+                    )
+                return result
+            else:
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    status="rejected",
+                    error_message="Failed to submit one or both legs of long straddle"
+                )
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error(f"Error submitting long straddle for {symbol}: {str(e)}", e)
+            return OrderResult(success=False, order_id=None, status="error", error_message=str(e))

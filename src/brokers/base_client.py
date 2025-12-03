@@ -246,3 +246,35 @@ class BaseBrokerClient(ABC):
             OrderResult with order ID and status
         """
         pass
+
+    @abstractmethod
+    def submit_married_put_order(self, symbol: str, shares: int, put_strike: float,
+                                 expiration: date) -> OrderResult:
+        """Submit a married put order (buy stock + buy protective put).
+        
+        Args:
+            symbol: Stock symbol
+            shares: Number of shares to buy (typically 100)
+            put_strike: Strike price for protective put
+            expiration: Option expiration date
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        pass
+
+    @abstractmethod
+    def submit_long_straddle_order(self, symbol: str, strike: float,
+                                   expiration: date, num_contracts: int) -> OrderResult:
+        """Submit a long straddle order (buy ATM call + buy ATM put).
+        
+        Args:
+            symbol: Stock symbol
+            strike: ATM strike price for both call and put
+            expiration: Option expiration date
+            num_contracts: Number of straddles to buy
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        pass

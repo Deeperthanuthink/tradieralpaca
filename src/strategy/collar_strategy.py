@@ -888,3 +888,270 @@ class ButterflyCalculator:
         lower_be = lower + debit_per_share
         upper_be = upper - debit_per_share
         return (lower_be, upper_be)
+
+
+
+@dataclass
+class MarriedPutParameters:
+    """Parameters for a married put strategy.
+    
+    A married put consists of:
+    - Buy 100 shares of stock
+    - Buy 1 put option for protection
+    
+    This provides downside protection while maintaining unlimited upside.
+    """
+    symbol: str
+    current_price: float
+    shares_to_buy: int  # Typically 100
+    put_strike: float
+    put_expiration: date
+    num_contracts: int  # 1 put per 100 shares
+
+
+class MarriedPutCalculator:
+    """Calculator for Married Put strategy.
+    
+    A married put is a protective strategy where you:
+    1. Buy shares of stock (bullish position)
+    2. Buy a put option (insurance/protection)
+    
+    Benefits:
+    - Unlimited upside potential
+    - Limited downside (protected below put strike)
+    - Good for volatile stocks you're bullish on
+    
+    Cost: Stock price + put premium
+    Max Loss: (Stock Price - Put Strike) + Put Premium
+    Max Gain: Unlimited
+    """
+    
+    def __init__(self, put_offset_percent: float = 5.0, put_offset_dollars: float = 0.0,
+                 expiration_days: int = 30, shares_per_unit: int = 100):
+        """Initialize married put calculator.
+        
+        Args:
+            put_offset_percent: How far below price for put strike (default 5%)
+            put_offset_dollars: Fixed dollar offset (takes precedence)
+            expiration_days: Days until put expiration (default 30)
+            shares_per_unit: Shares to buy per unit (default 100)
+        """
+        self.put_offset_percent = put_offset_percent
+        self.put_offset_dollars = put_offset_dollars
+        self.expiration_days = expiration_days
+        self.shares_per_unit = shares_per_unit
+    
+    def calculate_put_strike(self, current_price: float) -> float:
+        """Calculate protective put strike price."""
+        if self.put_offset_dollars > 0:
+            return current_price - self.put_offset_dollars
+        return current_price * (1 - self.put_offset_percent / 100)
+    
+    def calculate_expiration(self, from_date: date = None) -> date:
+        """Calculate expiration date (nearest Friday around target days)."""
+        from datetime import timedelta
+        
+        if from_date is None:
+            from_date = date.today()
+        
+        target = from_date + timedelta(days=self.expiration_days)
+        
+        # Find nearest Friday
+        days_until_friday = (4 - target.weekday()) % 7
+        if target.weekday() == 4:
+            return target
+        
+        friday_after = target + timedelta(days=days_until_friday)
+        friday_before = friday_after - timedelta(days=7)
+        
+        if friday_before >= from_date + timedelta(days=1):
+            if abs((friday_before - target).days) <= abs((friday_after - target).days):
+                return friday_before
+        return friday_after
+    
+    def calculate_max_loss(self, stock_price: float, put_strike: float, 
+                          put_premium: float, shares: int = 100) -> float:
+        """Calculate maximum loss.
+        
+        Max loss = (Stock Price - Put Strike) * Shares + Put Premium
+        """
+        return ((stock_price - put_strike) * shares) + put_premium
+    
+    def calculate_breakeven(self, stock_price: float, put_premium: float, 
+                           shares: int = 100) -> float:
+        """Calculate breakeven price.
+        
+        Breakeven = Stock Price + (Put Premium / Shares)
+        """
+        return stock_price + (put_premium / shares)
+    
+    def find_nearest_strike_below(self, target: float, available_strikes: list) -> float:
+        """Find nearest strike at or below target."""
+        strikes_below = [s for s in available_strikes if s <= target]
+        if not strikes_below:
+            raise ValueError(f"No strikes available at or below ${target}")
+        return max(strikes_below)
+
+
+
+@dataclass
+class LongStraddleParameters:
+    """Parameters for a long straddle strategy.
+    
+    A long straddle consists of:
+    - Buy 1 ATM call option
+    - Buy 1 ATM put option (same strike as call)
+    
+    Both options have the same strike (ATM) and expiration.
+    Profits from significant price movement in either direction.
+    """
+    symbol: str
+    current_price: float
+    strike: float  # ATM strike for both call and put
+    expiration: date
+    num_contracts: int
+
+
+class LongStraddleCalculator:
+    """Calculator for Long Straddle strategy.
+    
+    A long straddle is a volatility strategy where you:
+    1. Buy an ATM call option
+    2. Buy an ATM put option (same strike)
+    
+    Benefits:
+    - Profits from large price moves in either direction
+    - Unlimited profit potential on upside
+    - Large profit potential on downside (down to zero)
+    - No directional bias needed
+    
+    Risks:
+    - Loses money if price stays near strike
+    - Time decay works against you (both options lose value)
+    - Requires significant move to overcome premium paid
+    
+    Best used when:
+    - Expecting high volatility (earnings, news events)
+    - Unsure of direction but confident in big move
+    - Implied volatility is relatively low
+    
+    Cost: Call Premium + Put Premium
+    Max Loss: Total premium paid (if price = strike at expiration)
+    Max Gain: Unlimited (upside) or Strike - Premium (downside)
+    Breakevens: Strike ± Total Premium Paid
+    """
+    
+    def __init__(self, expiration_days: int = 30, num_contracts: int = 1):
+        """Initialize long straddle calculator.
+        
+        Args:
+            expiration_days: Days until expiration (default 30)
+            num_contracts: Number of straddles to buy (default 1)
+        """
+        self.expiration_days = expiration_days
+        self.num_contracts = num_contracts
+    
+    def calculate_strike(self, current_price: float, available_strikes: list) -> float:
+        """Calculate ATM strike price (closest to current price).
+        
+        Args:
+            current_price: Current stock price
+            available_strikes: List of available strikes
+            
+        Returns:
+            ATM strike price
+        """
+        if not available_strikes:
+            raise ValueError("No strikes available")
+        return min(available_strikes, key=lambda x: abs(x - current_price))
+    
+    def calculate_expiration(self, from_date: date = None) -> date:
+        """Calculate expiration date (nearest Friday around target days).
+        
+        Args:
+            from_date: Starting date (default: today)
+            
+        Returns:
+            Expiration date (Friday)
+        """
+        from datetime import timedelta
+        
+        if from_date is None:
+            from_date = date.today()
+        
+        target = from_date + timedelta(days=self.expiration_days)
+        
+        # Find nearest Friday
+        days_until_friday = (4 - target.weekday()) % 7
+        if target.weekday() == 4:
+            return target
+        
+        friday_after = target + timedelta(days=days_until_friday)
+        friday_before = friday_after - timedelta(days=7)
+        
+        if friday_before >= from_date + timedelta(days=1):
+            if abs((friday_before - target).days) <= abs((friday_after - target).days):
+                return friday_before
+        return friday_after
+    
+    def calculate_max_loss(self, call_premium: float, put_premium: float, 
+                          num_contracts: int = 1) -> float:
+        """Calculate maximum loss.
+        
+        Max loss = Total premium paid (call + put) * 100 * contracts
+        Occurs when stock price equals strike at expiration.
+        
+        Args:
+            call_premium: Premium paid for call option
+            put_premium: Premium paid for put option
+            num_contracts: Number of straddles
+            
+        Returns:
+            Maximum loss in dollars
+        """
+        return (call_premium + put_premium) * 100 * num_contracts
+    
+    def calculate_breakevens(self, strike: float, call_premium: float, 
+                            put_premium: float) -> tuple:
+        """Calculate breakeven prices.
+        
+        Lower breakeven = Strike - Total Premium
+        Upper breakeven = Strike + Total Premium
+        
+        Args:
+            strike: ATM strike price
+            call_premium: Premium paid for call
+            put_premium: Premium paid for put
+            
+        Returns:
+            Tuple of (lower_breakeven, upper_breakeven)
+        """
+        total_premium = call_premium + put_premium
+        lower_be = strike - total_premium
+        upper_be = strike + total_premium
+        return (lower_be, upper_be)
+    
+    def calculate_profit_at_price(self, final_price: float, strike: float,
+                                  call_premium: float, put_premium: float,
+                                  num_contracts: int = 1) -> float:
+        """Calculate profit/loss at a given final stock price.
+        
+        Args:
+            final_price: Stock price at expiration
+            strike: Strike price of both options
+            call_premium: Premium paid for call
+            put_premium: Premium paid for put
+            num_contracts: Number of straddles
+            
+        Returns:
+            Profit (positive) or loss (negative) in dollars
+        """
+        total_premium = (call_premium + put_premium) * 100 * num_contracts
+        
+        # Call value at expiration
+        call_value = max(0, final_price - strike) * 100 * num_contracts
+        
+        # Put value at expiration
+        put_value = max(0, strike - final_price) * 100 * num_contracts
+        
+        return call_value + put_value - total_premium

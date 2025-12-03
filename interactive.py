@@ -155,10 +155,22 @@ def select_strategy(symbol, shares_owned):
     print("        • Low cost, defined risk")
     
     print()
+    print("  mp  - Married Put")
+    print("        • Buy 100 shares + Buy 1 protective put")
+    print("        • Unlimited upside, limited downside")
+    print("        • Good for bullish outlook with protection")
+    
+    print()
+    print("  ls  - Long Straddle")
+    print("        • Buy 1 ATM call + Buy 1 ATM put")
+    print("        • Profits from big moves in either direction")
+    print("        • Best when expecting high volatility")
+    
+    print()
     
     while True:
         try:
-            choice = input("  Enter strategy (pcs/cs/cc/ws/lcc/dc/bf): ").strip().lower()
+            choice = input("  Enter strategy (pcs/cs/cc/ws/lcc/dc/bf/mp/ls): ").strip().lower()
             
             if choice == 'pcs':
                 print("  ✅ Selected: Put Credit Spread")
@@ -193,8 +205,14 @@ def select_strategy(symbol, shares_owned):
             elif choice == 'bf':
                 print("  ✅ Selected: Butterfly on QQQ")
                 return 'bf'
+            elif choice == 'mp':
+                print("  ✅ Selected: Married Put")
+                return 'mp'
+            elif choice == 'ls':
+                print("  ✅ Selected: Long Straddle")
+                return 'ls'
             else:
-                print("  ❌ Enter 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', or 'bf'")
+                print("  ❌ Enter 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', 'bf', 'mp', or 'ls'")
                 
         except KeyboardInterrupt:
             print("\n\n  👋 Goodbye!")
@@ -212,7 +230,9 @@ def confirm_execution(symbol, strategy, shares_owned):
         'ws': f"Wheel Strategy ({'CC' if has_100_shares else 'CSP'} phase)",
         'lcc': 'Laddered Covered Call',
         'dc': 'Double Calendar (QQQ)',
-        'bf': 'Butterfly (QQQ)'
+        'bf': 'Butterfly (QQQ)',
+        'mp': 'Married Put',
+        'ls': 'Long Straddle'
     }
     strategy_name = strategy_names.get(strategy, strategy)
     
@@ -254,6 +274,16 @@ def confirm_execution(symbol, strategy, shares_owned):
         print(f"  Wing width: $5 between strikes")
         print(f"  Expiry:     ~7 days out")
         print(f"  Max profit: At middle strike")
+    if strategy == 'mp':
+        print(f"  Action:     Buy 100 shares + Buy 1 put")
+        print(f"  Put strike: ~5% below current price")
+        print(f"  Expiry:     ~30 days out")
+        print(f"  Protection: Limited loss below put strike")
+    if strategy == 'ls':
+        print(f"  Action:     Buy 1 ATM call + Buy 1 ATM put")
+        print(f"  Strike:     At-the-money (closest to current price)")
+        print(f"  Expiry:     ~30 days out")
+        print(f"  Profit:     Big move up OR down")
     print()
     
     while True:
@@ -375,7 +405,7 @@ def execute_trade(symbol, strategy):
             print()
             
             if summary.successful_trades > 0:
-                strategy_names = {'pcs': 'Put Credit Spread', 'cs': 'Collar', 'cc': 'Covered Call', 'ws': 'Wheel', 'lcc': 'Laddered CC', 'dc': 'Double Calendar', 'bf': 'Butterfly'}
+                strategy_names = {'pcs': 'Put Credit Spread', 'cs': 'Collar', 'cc': 'Covered Call', 'ws': 'Wheel', 'lcc': 'Laddered CC', 'dc': 'Double Calendar', 'bf': 'Butterfly', 'mp': 'Married Put', 'ls': 'Long Straddle'}
                 strategy_name = strategy_names.get(strategy, strategy)
                 print(f"  ✅ SUCCESS!")
                 print(f"     Stock:    {symbol}")

@@ -9,7 +9,7 @@ from src.config.models import Config
 from src.brokers.broker_factory import BrokerFactory
 from src.brokers.base_client import BaseBrokerClient
 from src.strategy.strategy_calculator import StrategyCalculator, SpreadParameters
-from src.strategy.collar_strategy import CollarCalculator, CollarParameters, CoveredCallCalculator, CoveredCallParameters, WheelCalculator, LadderedCoveredCallCalculator, DoubleCalendarCalculator, ButterflyCalculator
+from src.strategy.collar_strategy import CollarCalculator, CollarParameters, CoveredCallCalculator, CoveredCallParameters, WheelCalculator, LadderedCoveredCallCalculator, DoubleCalendarCalculator, ButterflyCalculator, MarriedPutCalculator, LongStraddleCalculator
 from src.order.order_manager import OrderManager, TradeResult
 from src.logging.bot_logger import BotLogger
 
@@ -135,7 +135,17 @@ class TradingBot:
                 wing_width=self.config.bf_wing_width,
                 expiration_days=self.config.bf_expiration_days
             )
-            strategy_names = {"pcs": "Put Credit Spread", "cs": "Collar", "cc": "Covered Call", "ws": "Wheel Strategy", "lcc": "Laddered Covered Call", "dc": "Double Calendar", "bf": "Butterfly"}
+            self.married_put_calculator = MarriedPutCalculator(
+                put_offset_percent=self.config.mp_put_offset_percent,
+                put_offset_dollars=self.config.mp_put_offset_dollars,
+                expiration_days=self.config.mp_expiration_days,
+                shares_per_unit=self.config.mp_shares_per_unit
+            )
+            self.long_straddle_calculator = LongStraddleCalculator(
+                expiration_days=self.config.ls_expiration_days,
+                num_contracts=self.config.ls_num_contracts
+            )
+            strategy_names = {"pcs": "Put Credit Spread", "cs": "Collar", "cc": "Covered Call", "ws": "Wheel Strategy", "lcc": "Laddered Covered Call", "dc": "Double Calendar", "bf": "Butterfly", "mp": "Married Put", "ls": "Long Straddle"}
             strategy_name = strategy_names.get(self.config.strategy, "Unknown")
             self.logger.log_info(
                 f"Strategy calculators initialized ({strategy_name})",
@@ -315,6 +325,10 @@ class TradingBot:
                     trade_result = self.process_double_calendar_symbol(symbol)
                 elif self.config.strategy == 'bf':  # Butterfly
                     trade_result = self.process_butterfly_symbol(symbol)
+                elif self.config.strategy == 'mp':  # Married Put
+                    trade_result = self.process_married_put_symbol(symbol)
+                elif self.config.strategy == 'ls':  # Long Straddle
+                    trade_result = self.process_long_straddle_symbol(symbol)
                 else:  # pcs = Put Credit Spread (default)
                     trade_result = self.process_symbol(symbol)
                     
@@ -1570,6 +1584,265 @@ class TradingBot:
         except Exception as e:
             error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
             self.logger.log_error(f"Butterfly failed for {symbol}", e)
+            return TradeResult(
+                symbol=symbol,
+                success=False,
+                order_id=None,
+                short_strike=0.0,
+                long_strike=0.0,
+                expiration=date.today(),
+                quantity=0,
+                filled_price=None,
+                error_message=error_msg,
+                timestamp=timestamp
+            )
+
+    def process_married_put_symbol(self, symbol: str) -> TradeResult:
+        """Process a single symbol using Married Put strategy.
+        
+        Married Put strategy:
+        1. Buy 100 shares of stock
+        2. Buy 1 protective put option
+        
+        This provides downside protection while maintaining unlimited upside.
+        
+        Args:
+            symbol: Stock symbol to process
+            
+        Returns:
+            TradeResult with execution details
+        """
+        timestamp = datetime.now()
+        
+        try:
+            # Get current market price
+            self.logger.log_info(f"Fetching current price for {symbol} (Married Put Strategy)")
+            current_price = self.broker_client.get_current_price(symbol)
+            self.logger.log_info(
+                f"Current price for {symbol}: ${current_price:.2f}",
+                {"symbol": symbol, "price": current_price, "strategy": "married_put"}
+            )
+            
+            # Calculate put strike target
+            put_strike_target = self.married_put_calculator.calculate_put_strike(current_price)
+            
+            # Calculate expiration
+            expiration = self.married_put_calculator.calculate_expiration()
+            
+            # Get shares to buy
+            shares_to_buy = self.config.mp_shares_per_unit
+            
+            self.logger.log_info(
+                f"Married Put targets for {symbol}",
+                {
+                    "symbol": symbol,
+                    "shares_to_buy": shares_to_buy,
+                    "put_target": f"${put_strike_target:.2f}",
+                    "expiration": expiration.isoformat(),
+                    "estimated_cost": f"${current_price * shares_to_buy:,.2f}"
+                }
+            )
+            
+            # Get option chain
+            self.logger.log_info(f"Retrieving option chain for {symbol}")
+            option_chain = self.broker_client.get_option_chain(symbol, expiration)
+            available_strikes = sorted(list(set([contract.strike for contract in option_chain])))
+            
+            self.logger.log_info(
+                f"Retrieved {len(available_strikes)} available strikes for {symbol}",
+                {"symbol": symbol, "strike_count": len(available_strikes)}
+            )
+            
+            # Find actual put strike
+            put_strike = self.married_put_calculator.find_nearest_strike_below(
+                put_strike_target, available_strikes
+            )
+            
+            self.logger.log_info(
+                f"Selected married put strike for {symbol}",
+                {
+                    "symbol": symbol,
+                    "put_strike": f"${put_strike:.2f}",
+                    "expiration": expiration.isoformat(),
+                    "protection_level": f"${put_strike:.2f} ({((current_price - put_strike) / current_price * 100):.1f}% below)"
+                }
+            )
+            
+            # Submit married put order
+            self.logger.log_info(f"Submitting married put order for {symbol}")
+            order_result = self.broker_client.submit_married_put_order(
+                symbol=symbol,
+                shares=shares_to_buy,
+                put_strike=put_strike,
+                expiration=expiration
+            )
+            
+            if order_result.success:
+                return TradeResult(
+                    symbol=symbol,
+                    success=True,
+                    order_id=order_result.order_id,
+                    short_strike=0.0,  # No short position in married put
+                    long_strike=put_strike,  # Long put for protection
+                    expiration=expiration,
+                    quantity=shares_to_buy,
+                    filled_price=None,
+                    error_message=None,
+                    timestamp=timestamp
+                )
+            else:
+                return TradeResult(
+                    symbol=symbol,
+                    success=False,
+                    order_id=None,
+                    short_strike=0.0,
+                    long_strike=put_strike,
+                    expiration=expiration,
+                    quantity=shares_to_buy,
+                    filled_price=None,
+                    error_message=order_result.error_message,
+                    timestamp=timestamp
+                )
+            
+        except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            self.logger.log_error(
+                f"Unexpected error processing married put for {symbol}",
+                e,
+                {
+                    "symbol": symbol,
+                    "error_type": type(e).__name__,
+                    "timestamp": timestamp.isoformat()
+                }
+            )
+            
+            return TradeResult(
+                symbol=symbol,
+                success=False,
+                order_id=None,
+                short_strike=0.0,
+                long_strike=0.0,
+                expiration=date.today(),
+                quantity=0,
+                filled_price=None,
+                error_message=error_msg,
+                timestamp=timestamp
+            )
+
+    def process_long_straddle_symbol(self, symbol: str) -> TradeResult:
+        """Process a single symbol using Long Straddle strategy.
+        
+        Long Straddle strategy:
+        1. Buy 1 ATM call option
+        2. Buy 1 ATM put option (same strike as call)
+        
+        Profits from significant price movement in either direction.
+        Best used when expecting high volatility but unsure of direction.
+        
+        Args:
+            symbol: Stock symbol to process
+            
+        Returns:
+            TradeResult with execution details
+        """
+        timestamp = datetime.now()
+        
+        try:
+            # Get current market price
+            self.logger.log_info(f"Fetching current price for {symbol} (Long Straddle Strategy)")
+            current_price = self.broker_client.get_current_price(symbol)
+            self.logger.log_info(
+                f"Current price for {symbol}: ${current_price:.2f}",
+                {"symbol": symbol, "price": current_price, "strategy": "long_straddle"}
+            )
+            
+            # Calculate expiration
+            expiration = self.long_straddle_calculator.calculate_expiration()
+            
+            # Get number of contracts
+            num_contracts = self.config.ls_num_contracts
+            
+            self.logger.log_info(
+                f"Long Straddle targets for {symbol}",
+                {
+                    "symbol": symbol,
+                    "target_strike": f"${current_price:.2f} (ATM)",
+                    "expiration": expiration.isoformat(),
+                    "num_contracts": num_contracts
+                }
+            )
+            
+            # Get option chain
+            self.logger.log_info(f"Retrieving option chain for {symbol}")
+            option_chain = self.broker_client.get_option_chain(symbol, expiration)
+            available_strikes = sorted(list(set([contract.strike for contract in option_chain])))
+            
+            self.logger.log_info(
+                f"Retrieved {len(available_strikes)} available strikes for {symbol}",
+                {"symbol": symbol, "strike_count": len(available_strikes)}
+            )
+            
+            # Find ATM strike (closest to current price)
+            strike = self.long_straddle_calculator.calculate_strike(current_price, available_strikes)
+            
+            self.logger.log_info(
+                f"Selected long straddle strike for {symbol}",
+                {
+                    "symbol": symbol,
+                    "strike": f"${strike:.2f}",
+                    "expiration": expiration.isoformat(),
+                    "distance_from_atm": f"${abs(strike - current_price):.2f}"
+                }
+            )
+            
+            # Submit long straddle order
+            self.logger.log_info(f"Submitting long straddle order for {symbol}")
+            order_result = self.broker_client.submit_long_straddle_order(
+                symbol=symbol,
+                strike=strike,
+                expiration=expiration,
+                num_contracts=num_contracts
+            )
+            
+            if order_result.success:
+                return TradeResult(
+                    symbol=symbol,
+                    success=True,
+                    order_id=order_result.order_id,
+                    short_strike=0.0,  # No short position in long straddle
+                    long_strike=strike,  # Both call and put at this strike
+                    expiration=expiration,
+                    quantity=num_contracts,
+                    filled_price=None,
+                    error_message=None,
+                    timestamp=timestamp
+                )
+            else:
+                return TradeResult(
+                    symbol=symbol,
+                    success=False,
+                    order_id=None,
+                    short_strike=0.0,
+                    long_strike=strike,
+                    expiration=expiration,
+                    quantity=num_contracts,
+                    filled_price=None,
+                    error_message=order_result.error_message,
+                    timestamp=timestamp
+                )
+            
+        except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            self.logger.log_error(
+                f"Unexpected error processing long straddle for {symbol}",
+                e,
+                {
+                    "symbol": symbol,
+                    "error_type": type(e).__name__,
+                    "timestamp": timestamp.isoformat()
+                }
+            )
+            
             return TradeResult(
                 symbol=symbol,
                 success=False,

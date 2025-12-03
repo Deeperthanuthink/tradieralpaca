@@ -86,6 +86,8 @@ class ConfigManager:
         lcc_config = strategies.get('lcc', {})
         dc_config = strategies.get('dc', {})
         bf_config = strategies.get('bf', {})
+        mp_config = strategies.get('mp', {})
+        ls_config = strategies.get('ls', {})
         
         # Create main config with type conversion error handling
         try:
@@ -136,7 +138,15 @@ class ConfigManager:
                 # Butterfly settings
                 bf_wing_width=float(bf_config.get('wing_width', 5.0)),
                 bf_expiration_days=int(bf_config.get('expiration_days', 7)),
-                bf_symbol=bf_config.get('symbol', 'QQQ')
+                bf_symbol=bf_config.get('symbol', 'QQQ'),
+                # Married Put settings
+                mp_put_offset_percent=float(mp_config.get('put_offset_percent', 5.0)),
+                mp_put_offset_dollars=float(mp_config.get('put_offset_dollars', 0.0)),
+                mp_expiration_days=int(mp_config.get('expiration_days', 30)),
+                mp_shares_per_unit=int(mp_config.get('shares_per_unit', 100)),
+                # Long Straddle settings
+                ls_expiration_days=int(ls_config.get('expiration_days', 30)),
+                ls_num_contracts=int(ls_config.get('num_contracts', 1))
             )
         except (ValueError, TypeError) as e:
             raise ValueError(

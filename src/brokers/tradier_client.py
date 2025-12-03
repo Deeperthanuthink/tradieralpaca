@@ -1133,3 +1133,261 @@ class TradierClient(BaseBrokerClient):
             if self.logger:
                 self.logger.log_error(f"Butterfly failed for {symbol}: {str(e)}", e)
             return OrderResult(success=False, order_id=None, status="error", error_message=str(e))
+
+
+    def submit_married_put_order(self, symbol: str, shares: int, put_strike: float,
+                                 expiration: date) -> OrderResult:
+        """Submit a married put order to Tradier.
+        
+        A married put consists of:
+        1. Buy shares of stock
+        2. Buy protective put option
+        
+        Args:
+            symbol: Stock symbol
+            shares: Number of shares to buy (typically 100)
+            put_strike: Strike price for protective put
+            expiration: Option expiration date
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            import requests
+            
+            base_url = 'https://sandbox.tradier.com' if self.is_sandbox else 'https://api.tradier.com'
+            
+            # Order 1: Buy shares
+            stock_order_data = {
+                'class': 'equity',
+                'symbol': symbol,
+                'side': 'buy',
+                'quantity': shares,
+                'type': 'market',
+                'duration': 'day'
+            }
+            
+            stock_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=stock_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Order 2: Buy protective put
+            expiration_str = expiration.strftime('%y%m%d')
+            put_strike_str = f"{int(put_strike * 1000):08d}"
+            put_symbol = f"{symbol}{expiration_str}P{put_strike_str}"
+            
+            num_contracts = shares // 100  # 1 put per 100 shares
+            
+            put_order_data = {
+                'class': 'option',
+                'symbol': symbol,
+                'option_symbol': put_symbol,
+                'side': 'buy_to_open',
+                'quantity': num_contracts,
+                'type': 'market',
+                'duration': 'day'
+            }
+            
+            put_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=put_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Check if both orders succeeded
+            if stock_response.status_code in [200, 201] and put_response.status_code in [200, 201]:
+                stock_data = stock_response.json()
+                put_data = put_response.json()
+                
+                stock_order_id = stock_data.get('order', {}).get('id')
+                put_order_id = put_data.get('order', {}).get('id')
+                
+                result = OrderResult(
+                    success=True,
+                    order_id=f"STOCK:{stock_order_id}_PUT:{put_order_id}",
+                    status="submitted",
+                    error_message=None
+                )
+                
+                if self.logger:
+                    self.logger.log_info(
+                        f"Successfully submitted married put order for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "stock_order_id": stock_order_id,
+                            "put_order_id": put_order_id,
+                            "shares": shares,
+                            "put_strike": put_strike,
+                            "expiration": expiration.isoformat(),
+                            "strategy": "married_put"
+                        }
+                    )
+                
+                return result
+            else:
+                error_msg = f"Married put order failed - Stock: {stock_response.status_code}, Put: {put_response.status_code}"
+                
+                if self.logger:
+                    self.logger.log_error(
+                        f"Married put order rejected for {symbol}: {error_msg}",
+                        None,
+                        {"symbol": symbol, "stock_response": stock_response.text, "put_response": put_response.text}
+                    )
+                
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    status="rejected",
+                    error_message=error_msg
+                )
+                
+        except Exception as e:
+            error_msg = f"Unexpected error submitting married put for {symbol}: {str(e)}"
+            
+            if self.logger:
+                self.logger.log_error(error_msg, e, {"symbol": symbol})
+            
+            return OrderResult(
+                success=False,
+                order_id=None,
+                status="error",
+                error_message=str(e)
+            )
+
+
+    def submit_long_straddle_order(self, symbol: str, strike: float,
+                                   expiration: date, num_contracts: int) -> OrderResult:
+        """Submit a long straddle order to Tradier.
+        
+        A long straddle consists of:
+        1. Buy ATM call option
+        2. Buy ATM put option (same strike)
+        
+        Args:
+            symbol: Stock symbol
+            strike: ATM strike price for both call and put
+            expiration: Option expiration date
+            num_contracts: Number of straddles to buy
+            
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            import requests
+            
+            base_url = 'https://sandbox.tradier.com' if self.is_sandbox else 'https://api.tradier.com'
+            
+            # Format expiration and strike
+            expiration_str = expiration.strftime('%y%m%d')
+            strike_str = f"{int(strike * 1000):08d}"
+            
+            call_symbol = f"{symbol}{expiration_str}C{strike_str}"
+            put_symbol = f"{symbol}{expiration_str}P{strike_str}"
+            
+            # Order 1: Buy call
+            call_order_data = {
+                'class': 'option',
+                'symbol': symbol,
+                'option_symbol': call_symbol,
+                'side': 'buy_to_open',
+                'quantity': num_contracts,
+                'type': 'market',
+                'duration': 'day'
+            }
+            
+            call_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=call_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Order 2: Buy put
+            put_order_data = {
+                'class': 'option',
+                'symbol': symbol,
+                'option_symbol': put_symbol,
+                'side': 'buy_to_open',
+                'quantity': num_contracts,
+                'type': 'market',
+                'duration': 'day'
+            }
+            
+            put_response = requests.post(
+                f'{base_url}/v1/accounts/{self.account_id}/orders',
+                data=put_order_data,
+                headers={
+                    'Authorization': f'Bearer {self.api_token}',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            # Check if both orders succeeded
+            if call_response.status_code in [200, 201] and put_response.status_code in [200, 201]:
+                call_data = call_response.json()
+                put_data = put_response.json()
+                
+                call_order_id = call_data.get('order', {}).get('id')
+                put_order_id = put_data.get('order', {}).get('id')
+                
+                result = OrderResult(
+                    success=True,
+                    order_id=f"CALL:{call_order_id}_PUT:{put_order_id}",
+                    status="submitted",
+                    error_message=None
+                )
+                
+                if self.logger:
+                    self.logger.log_info(
+                        f"Successfully submitted long straddle order for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "call_order_id": call_order_id,
+                            "put_order_id": put_order_id,
+                            "strike": strike,
+                            "expiration": expiration.isoformat(),
+                            "num_contracts": num_contracts,
+                            "strategy": "long_straddle"
+                        }
+                    )
+                
+                return result
+            else:
+                error_msg = f"Long straddle order failed - Call: {call_response.status_code}, Put: {put_response.status_code}"
+                
+                if self.logger:
+                    self.logger.log_error(
+                        f"Long straddle order rejected for {symbol}: {error_msg}",
+                        None,
+                        {"symbol": symbol, "call_response": call_response.text, "put_response": put_response.text}
+                    )
+                
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    status="rejected",
+                    error_message=error_msg
+                )
+                
+        except Exception as e:
+            error_msg = f"Unexpected error submitting long straddle for {symbol}: {str(e)}"
+            
+            if self.logger:
+                self.logger.log_error(error_msg, e, {"symbol": symbol})
+            
+            return OrderResult(
+                success=False,
+                order_id=None,
+                status="error",
+                error_message=str(e)
+            )

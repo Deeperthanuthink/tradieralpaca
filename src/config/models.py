@@ -124,6 +124,16 @@ class Config:
     bf_expiration_days: int = 7  # Days until expiration
     bf_symbol: str = "QQQ"  # Default symbol for butterfly
     
+    # Married Put settings (mp)
+    mp_put_offset_percent: float = 5.0  # How far below price for put strike
+    mp_put_offset_dollars: float = 0.0  # Fixed dollar offset (takes precedence)
+    mp_expiration_days: int = 30  # Days until put expiration
+    mp_shares_per_unit: int = 100  # Shares to buy per unit
+    
+    # Long Straddle settings (ls)
+    ls_expiration_days: int = 30  # Days until expiration
+    ls_num_contracts: int = 1  # Number of straddles to buy
+    
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate the entire configuration.
         
