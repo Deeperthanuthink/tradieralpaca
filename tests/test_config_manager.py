@@ -13,6 +13,7 @@ class TestConfigManager:
         """Test loading a valid configuration file."""
         config_data = {
             "symbols": ["NVDA", "GOOGL", "AAPL"],
+            "broker_type": "alpaca",
             "strike_offset_percent": 5.0,
             "spread_width": 5.0,
             "contract_quantity": 2,
@@ -83,6 +84,7 @@ class TestConfigManager:
         
         config_data = {
             "symbols": ["NVDA"],
+            "broker_type": "alpaca",
             "strike_offset_percent": 5.0,
             "spread_width": 5.0,
             "contract_quantity": 1,
@@ -119,6 +121,7 @@ class TestConfigManager:
         """Test that default values are applied for missing fields."""
         config_data = {
             "symbols": ["NVDA"],
+            "broker_type": "alpaca",
             "alpaca": {
                 "api_key": "test_key",
                 "api_secret": "test_secret"
@@ -140,7 +143,8 @@ class TestConfigManager:
             assert config.execution_day == "Tuesday"
             assert config.execution_time_offset_minutes == 30
             assert config.expiration_offset_weeks == 1
-            assert config.alpaca_credentials.base_url == "https://paper-api.alpaca.markets"
+            # AlpacaCredentials uses 'paper' boolean, not base_url
+            assert config.alpaca_credentials.paper == True
             assert config.logging_config.level == "INFO"
             assert config.logging_config.file_path == "logs/trading_bot.log"
         finally:
@@ -150,6 +154,7 @@ class TestConfigManager:
         """Test validation of invalid symbol format."""
         config_data = {
             "symbols": ["nvda"],  # lowercase - invalid
+            "broker_type": "alpaca",
             "strike_offset_percent": 5.0,
             "spread_width": 5.0,
             "contract_quantity": 1,
@@ -183,19 +188,23 @@ class TestConfigManager:
     
     def test_invalid_numeric_ranges(self):
         """Test validation of invalid numeric ranges."""
-        # Test negative strike offset
+        # Test zero spread width - invalid (strike_offset can be 0 if dollar offset is used)
         config_data = {
             "symbols": ["NVDA"],
-            "strike_offset_percent": -5.0,  # negative - invalid
-            "spread_width": 5.0,
+            "broker_type": "alpaca",
+            "strategies": {
+                "pcs": {
+                    "strike_offset_percent": 5.0,
+                    "spread_width": 0  # Invalid - must be positive
+                }
+            },
             "contract_quantity": 1,
             "execution_day": "Tuesday",
             "execution_time_offset_minutes": 30,
             "expiration_offset_weeks": 1,
             "alpaca": {
                 "api_key": "test_key",
-                "api_secret": "test_secret",
-                "base_url": "https://paper-api.alpaca.markets"
+                "api_secret": "test_secret"
             },
             "logging": {
                 "level": "INFO",
@@ -221,16 +230,20 @@ class TestConfigManager:
         """Test all getter methods return correct values."""
         config_data = {
             "symbols": ["NVDA", "GOOGL"],
-            "strike_offset_percent": 7.5,
-            "spread_width": 10.0,
+            "broker_type": "alpaca",
+            "strategies": {
+                "pcs": {
+                    "strike_offset_percent": 7.5,
+                    "spread_width": 10.0
+                }
+            },
             "contract_quantity": 3,
             "execution_day": "Wednesday",
             "execution_time_offset_minutes": 45,
             "expiration_offset_weeks": 2,
             "alpaca": {
                 "api_key": "test_key",
-                "api_secret": "test_secret",
-                "base_url": "https://paper-api.alpaca.markets"
+                "api_secret": "test_secret"
             },
             "logging": {
                 "level": "DEBUG",
@@ -254,9 +267,10 @@ class TestConfigManager:
             assert manager.get_execution_time_offset_minutes() == 45
             assert manager.get_expiration_offset_weeks() == 2
             
-            credentials = manager.get_alpaca_credentials()
-            assert credentials.api_key == "test_key"
-            assert credentials.api_secret == "test_secret"
+            # Access alpaca credentials from the loaded config (no getter method exists)
+            config = manager._config
+            assert config.alpaca_credentials.api_key == "test_key"
+            assert config.alpaca_credentials.api_secret == "test_secret"
             
             logging_config = manager.get_logging_config()
             assert logging_config.level == "DEBUG"

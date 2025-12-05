@@ -10,17 +10,21 @@ def sample_config():
     """Create a sample configuration for testing."""
     return Config(
         symbols=['NVDA', 'AAPL'],
+        strategy='pcs',
         strike_offset_percent=5.0,
         spread_width=5.0,
         contract_quantity=1,
+        run_immediately=False,
         execution_day='Tuesday',
         execution_time_offset_minutes=30,
         expiration_offset_weeks=1,
+        broker_type='alpaca',
         alpaca_credentials=AlpacaCredentials(
             api_key='test_key',
             api_secret='test_secret',
-            base_url='https://paper-api.alpaca.markets'
+            paper=True
         ),
+        tradier_credentials=None,
         logging_config=LoggingConfig(
             level='INFO',
             file_path='logs/test.log'
