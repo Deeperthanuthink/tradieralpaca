@@ -87,6 +87,14 @@
       "call_offset_percent": 5.0,
       "expiration_days": 30,
       "num_contracts": 1
+    },
+    "ic": {
+      "name": "Iron Condor",
+      "put_spread_offset_percent": 3.0,
+      "call_spread_offset_percent": 3.0,
+      "spread_width": 5.0,
+      "expiration_days": 30,
+      "num_contracts": 1
     }
   },
   "brokers": {

@@ -900,3 +900,122 @@ class AlpacaClient(BaseBrokerClient):
             if self.logger:
                 self.logger.log_error(f"Short strangle failed for {symbol}: {str(e)}", e)
             return OrderResult(success=False, order_id=None, status="error", error_message=str(e))
+    def submit_iron_condor_order(
+        self,
+        symbol: str,
+        put_long_strike: float,
+        put_short_strike: float,
+        call_short_strike: float,
+        call_long_strike: float,
+        expiration: date,
+        num_contracts: int,
+    ) -> OrderResult:
+        """Submit an iron condor order to Alpaca.
+
+        Iron condor structure:
+        - Sell OTM put (put short strike)
+        - Buy further OTM put (put long strike)
+        - Sell OTM call (call short strike)
+        - Buy further OTM call (call long strike)
+
+        Args:
+            symbol: Stock symbol
+            put_long_strike: Long put strike (buy)
+            put_short_strike: Short put strike (sell)
+            call_short_strike: Short call strike (sell)
+            call_long_strike: Long call strike (buy)
+            expiration: Option expiration date
+            num_contracts: Number of iron condors
+
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            # Format expiration and strikes
+            exp_str = expiration.strftime("%y%m%d")
+            put_long_str = f"{int(put_long_strike * 1000):08d}"
+            put_short_str = f"{int(put_short_strike * 1000):08d}"
+            call_short_str = f"{int(call_short_strike * 1000):08d}"
+            call_long_str = f"{int(call_long_strike * 1000):08d}"
+
+            # Option symbols
+            put_long_symbol = f"{symbol}{exp_str}P{put_long_str}"
+            put_short_symbol = f"{symbol}{exp_str}P{put_short_str}"
+            call_short_symbol = f"{symbol}{exp_str}C{call_short_str}"
+            call_long_symbol = f"{symbol}{exp_str}C{call_long_str}"
+
+            # Submit 4 orders
+            orders_submitted = []
+
+            # Buy long put
+            put_long_asset = Asset(symbol=put_long_symbol, asset_type="option")
+            put_long_order = self.broker.create_order(
+                put_long_asset, num_contracts, "buy", "market"
+            )
+            put_long_result = self.broker.submit_order(put_long_order)
+            if put_long_result:
+                orders_submitted.append(f"LongPut:{put_long_result.identifier}")
+
+            # Sell short put
+            put_short_asset = Asset(symbol=put_short_symbol, asset_type="option")
+            put_short_order = self.broker.create_order(
+                put_short_asset, num_contracts, "sell", "market"
+            )
+            put_short_result = self.broker.submit_order(put_short_order)
+            if put_short_result:
+                orders_submitted.append(f"ShortPut:{put_short_result.identifier}")
+
+            # Sell short call
+            call_short_asset = Asset(symbol=call_short_symbol, asset_type="option")
+            call_short_order = self.broker.create_order(
+                call_short_asset, num_contracts, "sell", "market"
+            )
+            call_short_result = self.broker.submit_order(call_short_order)
+            if call_short_result:
+                orders_submitted.append(f"ShortCall:{call_short_result.identifier}")
+
+            # Buy long call
+            call_long_asset = Asset(symbol=call_long_symbol, asset_type="option")
+            call_long_order = self.broker.create_order(
+                call_long_asset, num_contracts, "buy", "market"
+            )
+            call_long_result = self.broker.submit_order(call_long_order)
+            if call_long_result:
+                orders_submitted.append(f"LongCall:{call_long_result.identifier}")
+
+            if len(orders_submitted) == 4:
+                result = OrderResult(
+                    success=True,
+                    order_id="|".join(orders_submitted),
+                    status="submitted",
+                    error_message=None,
+                )
+
+                if self.logger:
+                    self.logger.log_info(
+                        f"Iron condor submitted for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "put_long": put_long_strike,
+                            "put_short": put_short_strike,
+                            "call_short": call_short_strike,
+                            "call_long": call_long_strike,
+                            "expiration": expiration.isoformat(),
+                            "strategy": "iron_condor",
+                        },
+                    )
+                return result
+            else:
+                return OrderResult(
+                    success=False,
+                    order_id="|".join(orders_submitted) if orders_submitted else None,
+                    status="partial",
+                    error_message=f"Only {len(orders_submitted)}/4 legs submitted",
+                )
+
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error(f"Iron condor failed for {symbol}: {str(e)}", e)
+            return OrderResult(
+                success=False, order_id=None, status="error", error_message=str(e)
+            )

@@ -1548,3 +1548,182 @@ class ShortStrangleCalculator:
     def calculate_profit_range(self, put_strike: float, call_strike: float) -> float:
         """Calculate the width of the profit range."""
         return call_strike - put_strike
+
+
+@dataclass
+class IronCondorParameters:
+    """Parameters for an iron condor strategy.
+    
+    An iron condor consists of:
+    - Sell OTM put spread (lower strikes)
+    - Sell OTM call spread (upper strikes)
+    
+    All options have the same expiration.
+    Profits when stock stays between the short strikes.
+    """
+    symbol: str
+    current_price: float
+    put_short_strike: float   # OTM put (sell)
+    put_long_strike: float    # Further OTM put (buy)
+    call_short_strike: float  # OTM call (sell)
+    call_long_strike: float   # Further OTM call (buy)
+    expiration: date
+    num_contracts: int
+
+
+class IronCondorCalculator:
+    """Calculator for Iron Condor strategy.
+    
+    An iron condor is a neutral, limited-risk strategy that profits
+    when the underlying stays between the short strikes at expiration.
+    
+    Structure:
+    - Sell OTM put (put short strike - below current price)
+    - Buy further OTM put (put long strike - protection)
+    - Sell OTM call (call short strike - above current price)
+    - Buy further OTM call (call long strike - protection)
+    
+    Benefits:
+    - Defined risk (max loss = spread width - credit received)
+    - Collects premium from selling both spreads
+    - Wider profit range than iron butterfly
+    - High probability of profit
+    
+    Risks:
+    - Limited profit potential
+    - Loses money on big moves (but loss is capped)
+    - Requires 4 legs (higher commissions)
+    
+    Best used when:
+    - Expecting low volatility / range-bound market
+    - Want defined risk with premium collection
+    - Stock likely to stay in a range (not too close to current price)
+    
+    Max Profit: Net credit received (if stock between short strikes)
+    Max Loss: Spread width - Net credit (if stock beyond long strikes)
+    Breakevens: Put short strike - Credit, Call short strike + Credit
+    """
+    
+    def __init__(self, put_spread_offset_percent: float = 3.0, 
+                 call_spread_offset_percent: float = 3.0,
+                 spread_width: float = 5.0, expiration_days: int = 30,
+                 num_contracts: int = 1):
+        """Initialize iron condor calculator.
+        
+        Args:
+            put_spread_offset_percent: How far below price for put spread (default 3%)
+            call_spread_offset_percent: How far above price for call spread (default 3%)
+            spread_width: Width of each spread in dollars (default $5)
+            expiration_days: Days until expiration (default 30)
+            num_contracts: Number of iron condors (default 1)
+        """
+        self.put_spread_offset_percent = put_spread_offset_percent
+        self.call_spread_offset_percent = call_spread_offset_percent
+        self.spread_width = spread_width
+        self.expiration_days = expiration_days
+        self.num_contracts = num_contracts
+    
+    def calculate_strikes(self, current_price: float, available_strikes: list) -> tuple:
+        """Calculate iron condor strikes.
+        
+        Args:
+            current_price: Current stock price
+            available_strikes: List of available strikes
+            
+        Returns:
+            Tuple of (put_long, put_short, call_short, call_long)
+        """
+        if not available_strikes:
+            raise ValueError("No strikes available")
+        
+        # Calculate target short strikes (closer to current price)
+        put_short_target = current_price * (1 - self.put_spread_offset_percent / 100)
+        call_short_target = current_price * (1 + self.call_spread_offset_percent / 100)
+        
+        # Find actual short strikes
+        put_short_strike = self._find_nearest_strike_below(put_short_target, available_strikes)
+        call_short_strike = self._find_nearest_strike_above(call_short_target, available_strikes)
+        
+        # Calculate long strikes (further from current price for protection)
+        put_long_target = put_short_strike - self.spread_width
+        call_long_target = call_short_strike + self.spread_width
+        
+        # Find actual long strikes
+        put_long_strike = self._find_nearest_strike_below(put_long_target, available_strikes)
+        call_long_strike = self._find_nearest_strike_above(call_long_target, available_strikes)
+        
+        # Ensure proper ordering
+        if put_long_strike >= put_short_strike:
+            raise ValueError("Put long strike must be below put short strike")
+        if call_long_strike <= call_short_strike:
+            raise ValueError("Call long strike must be above call short strike")
+        
+        return (put_long_strike, put_short_strike, call_short_strike, call_long_strike)
+    
+    def _find_nearest_strike_below(self, target: float, available_strikes: list) -> float:
+        """Find nearest strike at or below target."""
+        strikes_below = [s for s in available_strikes if s <= target]
+        if not strikes_below:
+            raise ValueError(f"No strikes available at or below ${target}")
+        return max(strikes_below)
+    
+    def _find_nearest_strike_above(self, target: float, available_strikes: list) -> float:
+        """Find nearest strike at or above target."""
+        strikes_above = [s for s in available_strikes if s >= target]
+        if not strikes_above:
+            raise ValueError(f"No strikes available at or above ${target}")
+        return min(strikes_above)
+    
+    def calculate_expiration(self, from_date: date = None) -> date:
+        """Calculate expiration date (nearest Friday around target days)."""
+        from datetime import timedelta
+        
+        if from_date is None:
+            from_date = date.today()
+        
+        target = from_date + timedelta(days=self.expiration_days)
+        
+        # Find nearest Friday
+        days_until_friday = (4 - target.weekday()) % 7
+        if target.weekday() == 4:
+            return target
+        
+        friday_after = target + timedelta(days=days_until_friday)
+        friday_before = friday_after - timedelta(days=7)
+        
+        if friday_before >= from_date + timedelta(days=1):
+            if abs((friday_before - target).days) <= abs((friday_after - target).days):
+                return friday_before
+        return friday_after
+    
+    def calculate_max_profit(self, net_credit: float, num_contracts: int = 1) -> float:
+        """Calculate maximum profit.
+        
+        Max profit = Net credit received * 100 * contracts
+        Occurs when stock price is between short strikes at expiration.
+        """
+        return net_credit * 100 * num_contracts
+    
+    def calculate_max_loss(self, net_credit: float, spread_width: float,
+                          num_contracts: int = 1) -> float:
+        """Calculate maximum loss.
+        
+        Max loss = (Spread width - Net credit) * 100 * contracts
+        Occurs when stock price is beyond either long strike at expiration.
+        """
+        return (spread_width - net_credit) * 100 * num_contracts
+    
+    def calculate_breakevens(self, put_short_strike: float, call_short_strike: float,
+                            net_credit: float) -> tuple:
+        """Calculate breakeven prices.
+        
+        Lower breakeven = Put short strike - Net credit
+        Upper breakeven = Call short strike + Net credit
+        """
+        lower_be = put_short_strike - net_credit
+        upper_be = call_short_strike + net_credit
+        return (lower_be, upper_be)
+    
+    def calculate_profit_range(self, put_short_strike: float, call_short_strike: float) -> float:
+        """Calculate the width of the profit range."""
+        return call_short_strike - put_short_strike

@@ -89,6 +89,7 @@ class ConfigManager:
         ls_config = strategies.get("ls", {})
         ib_config = strategies.get("ib", {})
         ss_config = strategies.get("ss", {})
+        ic_config = strategies.get("ic", {})
 
         # Create main config with type conversion error handling
         try:
@@ -159,6 +160,12 @@ class ConfigManager:
                 ss_call_offset_percent=float(ss_config.get("call_offset_percent", 5.0)),
                 ss_expiration_days=int(ss_config.get("expiration_days", 30)),
                 ss_num_contracts=int(ss_config.get("num_contracts", 1)),
+                # Iron Condor settings
+                ic_put_spread_offset_percent=float(ic_config.get("put_spread_offset_percent", 3.0)),
+                ic_call_spread_offset_percent=float(ic_config.get("call_spread_offset_percent", 3.0)),
+                ic_spread_width=float(ic_config.get("spread_width", 5.0)),
+                ic_expiration_days=int(ic_config.get("expiration_days", 30)),
+                ic_num_contracts=int(ic_config.get("num_contracts", 1)),
             )
         except (ValueError, TypeError) as e:
             raise ValueError(

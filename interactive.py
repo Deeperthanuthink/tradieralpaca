@@ -65,8 +65,27 @@ def select_stock(suggested_symbols):
     """Let user select a stock by typing any symbol."""
     print("📈 SELECT A STOCK:")
     print()
-    print(f"  Suggested: {', '.join(suggested_symbols)}")
-    print("  (or type any valid stock symbol)")
+    
+    # Display suggested symbols in a clean grid format
+    if suggested_symbols:
+        print("  📋 Suggested symbols:")
+        print("  ┌" + "─" * 42 + "┐")
+        
+        # Display symbols in rows of 4
+        for i in range(0, len(suggested_symbols), 4):
+            row_symbols = suggested_symbols[i:i+4]
+            row_text = "  │ " + " │ ".join(f"{sym:^8}" for sym in row_symbols)
+            # Pad the row if it's not complete
+            while len(row_symbols) < 4:
+                row_text += " │        "
+                row_symbols.append("")
+            row_text += " │"
+            print(row_text)
+        
+        print("  └" + "─" * 42 + "┘")
+        print()
+    
+    print("  💡 You can also enter any valid stock symbol")
     print()
 
     while True:
@@ -93,98 +112,58 @@ def select_stock(suggested_symbols):
 def select_strategy(symbol, shares_owned):
     """Let user select a trading strategy by typing abbreviation."""
     print()
-    print("─" * 60)
-    print("📊 STRATEGIES:")
-    print()
-    print("  pcs - Put Credit Spread")
-    print("        • Sell put spread for credit")
-    print("        • Profit if stock stays above short strike")
-    print()
-
+    print("─" * 70)
+    print("📊 TRADING STRATEGIES")
+    print("─" * 70)
+    
     # Check if stock-based strategies are available
     has_100_shares = shares_owned >= 100
-
-    if has_100_shares:
-        print("  cs  - Collar Strategy")
-        print("        • Protective put + covered call")
-        print(f"        • ✅ You own {shares_owned} shares of {symbol}")
-        print()
-        print("  cc  - Covered Call")
-        print("        • Sell call 5% above price, ~10 day expiry")
-        print(f"        • ✅ You own {shares_owned} shares of {symbol}")
-    else:
-        print("  cs  - Collar Strategy (UNAVAILABLE)")
-        print("        • Requires owning 100+ shares")
-        if shares_owned > 0:
-            print(f"        • ❌ You only own {shares_owned} shares of {symbol}")
-        else:
-            print(f"        • ❌ You don't own any shares of {symbol}")
-        print()
-        print("  cc  - Covered Call (UNAVAILABLE)")
-        print("        • Requires owning 100+ shares")
-
+    
     print()
-    print("  ws  - Wheel Strategy")
-    print("        • Auto-cycles between selling puts & calls")
-    if has_100_shares:
-        print(f"        • 🔄 Will sell COVERED CALL (you own {shares_owned} shares)")
-    else:
-        print(f"        • 🔄 Will sell CASH-SECURED PUT (you own {shares_owned} shares)")
-
+    print("🔹 BASIC STRATEGIES")
+    print("  ┌─────┬──────────────────┬──────────────────────────┐")
+    print("  │ pcs │ Put Credit Spread│ Sell put spread for credit│")
+    print("  │ ws  │ Wheel Strategy   │ Auto-cycle puts/calls     │")
+    print("  │ mp  │ Married Put      │ Buy shares + protective put│")
+    print("  └─────┴──────────────────┴──────────────────────────┘")
+    
     print()
-    if has_100_shares:
-        total_contracts = int((shares_owned * 0.667) // 100)
-        contracts_per_leg = max(1, total_contracts // 5)
-        print("  lcc - Laddered Covered Call")
-        print("        • Sells calls on 2/3 of holdings")
-        print("        • Spread across 5 weekly expirations (20% each)")
-        print(f"        • ✅ ~{total_contracts} contracts across 5 legs")
-    else:
-        print("  lcc - Laddered Covered Call (UNAVAILABLE)")
-        print("        • Requires owning 100+ shares")
-
+    print("🔹 STOCK-BASED STRATEGIES" + (" (Available)" if has_100_shares else " (Need 100+ shares)"))
+    status_cs = "✅" if has_100_shares else "❌"
+    status_cc = "✅" if has_100_shares else "❌"
+    status_lcc = "✅" if has_100_shares else "❌"
+    
+    print("  ┌─────┬──────────────────┬──────────────────────────┐")
+    print(f"  │ cs  │ Collar Strategy {status_cs}│ Protective put + covered call│")
+    print(f"  │ cc  │ Covered Call {status_cc}   │ Sell call on owned shares    │")
+    print(f"  │ lcc │ Laddered CC {status_lcc}    │ Multiple weekly covered calls│")
+    print("  └─────┴──────────────────┴──────────────────────────┘")
+    
+    if shares_owned > 0:
+        print(f"  💼 You own {shares_owned} shares of {symbol}")
+    
     print()
-    print("  dc  - Double Calendar (QQQ)")
-    print("        • Sell 2-day options, buy 4-day options")
-    print("        • Put calendar + Call calendar")
-    print("        • Profits from time decay")
-
+    print("🔹 VOLATILITY STRATEGIES")
+    print("  ┌─────┬──────────────────┬──────────────────────────┐")
+    print("  │ ls  │ Long Straddle    │ Profit from big moves     │")
+    print("  │ ib  │ Iron Butterfly   │ Profit when price stays put│")
+    print("  │ ic  │ Iron Condor      │ Profit in wider price range│")
+    print("  │ ss  │ Short Strangle ⚠️│ UNDEFINED RISK - use caution│")
+    print("  └─────┴──────────────────┴──────────────────────────┘")
+    
     print()
-    print("  bf  - Butterfly (QQQ)")
-    print("        • Buy 1 lower, Sell 2 middle, Buy 1 upper")
-    print("        • Max profit at middle strike")
-    print("        • Low cost, defined risk")
-
-    print()
-    print("  mp  - Married Put")
-    print("        • Buy 100 shares + Buy 1 protective put")
-    print("        • Unlimited upside, limited downside")
-    print("        • Good for bullish outlook with protection")
-
-    print()
-    print("  ls  - Long Straddle")
-    print("        • Buy 1 ATM call + Buy 1 ATM put")
-    print("        • Profits from big moves in either direction")
-    print("        • Best when expecting high volatility")
-
-    print()
-    print("  ib  - Iron Butterfly")
-    print("        • Sell ATM call + Sell ATM put + Buy wings")
-    print("        • Profits when stock stays near strike")
-    print("        • Defined risk, collects premium")
-
-    print()
-    print("  ss  - Short Strangle ⚠️")
-    print("        • Sell OTM call + Sell OTM put")
-    print("        • Profits when stock stays in range")
-    print("        • ⚠️ UNDEFINED RISK - use with caution!")
-
+    print("🔹 ADVANCED STRATEGIES (QQQ Only)")
+    print("  ┌─────┬──────────────────┬──────────────────────────┐")
+    print("  │ dc  │ Double Calendar  │ Time decay profit strategy│")
+    print("  │ bf  │ Butterfly        │ Low-cost defined risk     │")
+    print("  └─────┴──────────────────┴──────────────────────────┘")
+    
     print()
 
     while True:
         try:
             choice = (
-                input("  Enter strategy (pcs/cs/cc/ws/lcc/dc/bf/mp/ls/ib/ss): ").strip().lower()
+                input("  Enter strategy (pcs/cs/cc/ws/lcc/dc/bf/mp/ls/ib/ss/ic): ").strip().lower()
             )
 
             if choice == "pcs":
@@ -233,9 +212,12 @@ def select_strategy(symbol, shares_owned):
                 print("  ⚠️ WARNING: Short Strangle has UNDEFINED RISK!")
                 print("  ✅ Selected: Short Strangle")
                 return "ss"
+            elif choice == "ic":
+                print("  ✅ Selected: Iron Condor")
+                return "ic"
             else:
                 print(
-                    "  ❌ Enter 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', 'bf', 'mp', 'ls', 'ib', or 'ss'"
+                    "  ❌ Enter 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', 'bf', 'mp', 'ls', 'ib', 'ss', or 'ic'"
                 )
 
         except KeyboardInterrupt:
@@ -259,6 +241,7 @@ def confirm_execution(symbol, strategy, shares_owned):
         "ls": "Long Straddle",
         "ib": "Iron Butterfly",
         "ss": "Short Strangle ⚠️",
+        "ic": "Iron Condor"
     }
     strategy_name = strategy_names.get(strategy, strategy)
 
@@ -323,6 +306,12 @@ def confirm_execution(symbol, strategy, shares_owned):
         print(f"  Call:       ~5% above current price")
         print(f"  Expiry:     ~30 days out")
         print(f"  Profit:     Stock stays between strikes")
+    if strategy == "ic":
+        print(f"  Action:     Sell put spread + Sell call spread")
+        print(f"  Put spread: ~3% below price ($5 wide)")
+        print(f"  Call spread: ~3% above price ($5 wide)")
+        print(f"  Expiry:     ~30 days out")
+        print(f"  Profit:     Stock stays between short strikes")
     print()
 
     while True:
@@ -454,6 +443,7 @@ def execute_trade(symbol, strategy):
                     "ls": "Long Straddle",
                     "ib": "Iron Butterfly",
                     "ss": "Short Strangle",
+                    "ic": "Iron Condor"
                 }
                 strategy_name = strategy_names.get(strategy, strategy)
                 print(f"  ✅ SUCCESS!")

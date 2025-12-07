@@ -150,6 +150,13 @@ class Config:
     ss_expiration_days: int = 30  # Days until expiration
     ss_num_contracts: int = 1  # Number of strangles to sell
 
+    # Iron Condor settings (ic)
+    ic_put_spread_offset_percent: float = 3.0  # How far below price for put spread
+    ic_call_spread_offset_percent: float = 3.0  # How far above price for call spread
+    ic_spread_width: float = 5.0  # Width of each spread
+    ic_expiration_days: int = 30  # Days until expiration
+    ic_num_contracts: int = 1  # Number of iron condors
+
     def validate(self) -> tuple[bool, Optional[str]]:
         """Validate the entire configuration.
 

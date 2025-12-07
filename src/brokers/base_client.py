@@ -362,3 +362,35 @@ class BaseBrokerClient(ABC):
             OrderResult with order ID and status
         """
         pass
+    @abstractmethod
+    def submit_iron_condor_order(
+        self,
+        symbol: str,
+        put_long_strike: float,
+        put_short_strike: float,
+        call_short_strike: float,
+        call_long_strike: float,
+        expiration: date,
+        num_contracts: int,
+    ) -> OrderResult:
+        """Submit an iron condor order.
+
+        Iron condor structure:
+        - Sell OTM put (put short strike)
+        - Buy further OTM put (put long strike - protection)
+        - Sell OTM call (call short strike)
+        - Buy further OTM call (call long strike - protection)
+
+        Args:
+            symbol: Stock symbol
+            put_long_strike: Long put strike (buy - protection)
+            put_short_strike: Short put strike (sell)
+            call_short_strike: Short call strike (sell)
+            call_long_strike: Long call strike (buy - protection)
+            expiration: Option expiration date
+            num_contracts: Number of iron condors
+
+        Returns:
+            OrderResult with order ID and status
+        """
+        pass

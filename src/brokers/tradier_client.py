@@ -1709,3 +1709,144 @@ class TradierClient(BaseBrokerClient):
             if self.logger:
                 self.logger.log_error(f"Short strangle failed for {symbol}: {str(e)}", e)
             return OrderResult(success=False, order_id=None, status="error", error_message=str(e))
+    def submit_iron_condor_order(
+        self,
+        symbol: str,
+        put_long_strike: float,
+        put_short_strike: float,
+        call_short_strike: float,
+        call_long_strike: float,
+        expiration: date,
+        num_contracts: int,
+    ) -> OrderResult:
+        """Submit an iron condor order to Tradier.
+
+        Iron condor structure:
+        - Sell OTM put (put short strike)
+        - Buy further OTM put (put long strike)
+        - Sell OTM call (call short strike)
+        - Buy further OTM call (call long strike)
+
+        Args:
+            symbol: Stock symbol
+            put_long_strike: Long put strike (buy)
+            put_short_strike: Short put strike (sell)
+            call_short_strike: Short call strike (sell)
+            call_long_strike: Long call strike (buy)
+            expiration: Option expiration date
+            num_contracts: Number of iron condors
+
+        Returns:
+            OrderResult with order ID and status
+        """
+        try:
+            import requests
+
+            base_url = (
+                "https://sandbox.tradier.com"
+                if self.is_sandbox
+                else "https://api.tradier.com"
+            )
+
+            # Format expiration and strikes
+            exp_str = expiration.strftime("%y%m%d")
+            put_long_str = f"{int(put_long_strike * 1000):08d}"
+            put_short_str = f"{int(put_short_strike * 1000):08d}"
+            call_short_str = f"{int(call_short_strike * 1000):08d}"
+            call_long_str = f"{int(call_long_strike * 1000):08d}"
+
+            # Option symbols
+            put_long_symbol = f"{symbol}{exp_str}P{put_long_str}"  # Buy
+            put_short_symbol = f"{symbol}{exp_str}P{put_short_str}"  # Sell
+            call_short_symbol = f"{symbol}{exp_str}C{call_short_str}"  # Sell
+            call_long_symbol = f"{symbol}{exp_str}C{call_long_str}"  # Buy
+
+            # Submit 4 orders
+            orders = [
+                {"symbol": put_long_symbol, "side": "buy_to_open", "desc": "Buy Long Put"},
+                {
+                    "symbol": put_short_symbol,
+                    "side": "sell_to_open",
+                    "desc": "Sell Short Put",
+                },
+                {
+                    "symbol": call_short_symbol,
+                    "side": "sell_to_open",
+                    "desc": "Sell Short Call",
+                },
+                {
+                    "symbol": call_long_symbol,
+                    "side": "buy_to_open",
+                    "desc": "Buy Long Call",
+                },
+            ]
+
+            order_ids = []
+            for order in orders:
+                order_data = {
+                    "class": "option",
+                    "symbol": symbol,
+                    "option_symbol": order["symbol"],
+                    "side": order["side"],
+                    "quantity": num_contracts,
+                    "type": "market",
+                    "duration": "day",
+                }
+
+                response = requests.post(
+                    f"{base_url}/v1/accounts/{self.account_id}/orders",
+                    data=order_data,
+                    headers={
+                        "Authorization": f"Bearer {self.api_token}",
+                        "Accept": "application/json",
+                    },
+                )
+
+                if response.status_code in [200, 201]:
+                    result_data = response.json()
+                    order_id = result_data.get("order", {}).get("id")
+                    order_ids.append(f"{order['desc']}:{order_id}")
+                else:
+                    if self.logger:
+                        self.logger.log_error(
+                            f"Failed to submit {order['desc']}: {response.text}"
+                        )
+
+            if len(order_ids) == 4:
+                result = OrderResult(
+                    success=True,
+                    order_id="|".join(order_ids),
+                    status="submitted",
+                    error_message=None,
+                )
+
+                if self.logger:
+                    self.logger.log_info(
+                        f"Iron condor submitted for {symbol}",
+                        {
+                            "symbol": symbol,
+                            "put_long_strike": put_long_strike,
+                            "put_short_strike": put_short_strike,
+                            "call_short_strike": call_short_strike,
+                            "call_long_strike": call_long_strike,
+                            "expiration": expiration.isoformat(),
+                            "num_contracts": num_contracts,
+                            "order_ids": order_ids,
+                            "strategy": "iron_condor",
+                        },
+                    )
+                return result
+            else:
+                return OrderResult(
+                    success=False,
+                    order_id="|".join(order_ids) if order_ids else None,
+                    status="partial",
+                    error_message=f"Only {len(order_ids)}/4 legs submitted",
+                )
+
+        except Exception as e:
+            if self.logger:
+                self.logger.log_error(f"Iron condor failed for {symbol}: {str(e)}", e)
+            return OrderResult(
+                success=False, order_id=None, status="error", error_message=str(e)
+            )

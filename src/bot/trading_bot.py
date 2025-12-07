@@ -23,6 +23,7 @@ from src.strategy.collar_strategy import (
     LongStraddleCalculator,
     IronButterflyCalculator,
     ShortStrangleCalculator,
+    IronCondorCalculator,
 )
 from src.order.order_manager import OrderManager, TradeResult
 from src.logging.bot_logger import BotLogger
@@ -169,6 +170,13 @@ class TradingBot:
                 expiration_days=self.config.ss_expiration_days,
                 num_contracts=self.config.ss_num_contracts,
             )
+            self.iron_condor_calculator = IronCondorCalculator(
+                put_spread_offset_percent=self.config.ic_put_spread_offset_percent,
+                call_spread_offset_percent=self.config.ic_call_spread_offset_percent,
+                spread_width=self.config.ic_spread_width,
+                expiration_days=self.config.ic_expiration_days,
+                num_contracts=self.config.ic_num_contracts,
+            )
             strategy_names = {
                 "pcs": "Put Credit Spread",
                 "cs": "Collar",
@@ -181,6 +189,7 @@ class TradingBot:
                 "ls": "Long Straddle",
                 "ib": "Iron Butterfly",
                 "ss": "Short Strangle",
+                "ic": "Iron Condor",
             }
             strategy_name = strategy_names.get(self.config.strategy, "Unknown")
             self.logger.log_info(
@@ -364,6 +373,8 @@ class TradingBot:
                     trade_result = self.process_iron_butterfly_symbol(symbol)
                 elif self.config.strategy == "ss":  # Short Strangle
                     trade_result = self.process_short_strangle_symbol(symbol)
+                elif self.config.strategy == "ic":  # Iron Condor
+                    trade_result = self.process_iron_condor_symbol(symbol)
                 else:  # pcs = Put Credit Spread (default)
                     trade_result = self.process_symbol(symbol)
 
@@ -2184,6 +2195,148 @@ class TradingBot:
             error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
             self.logger.log_error(
                 f"Unexpected error processing short strangle for {symbol}",
+                e,
+                {
+                    "symbol": symbol,
+                    "error_type": type(e).__name__,
+                    "timestamp": timestamp.isoformat(),
+                },
+            )
+
+            return TradeResult(
+                symbol=symbol,
+                success=False,
+                order_id=None,
+                short_strike=0.0,
+                long_strike=0.0,
+                expiration=date.today(),
+                quantity=0,
+                filled_price=None,
+                error_message=error_msg,
+                timestamp=timestamp,
+            )
+
+    def process_iron_condor_symbol(self, symbol: str) -> TradeResult:
+        """Process a single symbol using Iron Condor strategy.
+
+        Iron Condor strategy:
+        - Sell OTM put spread (lower strikes)
+        - Sell OTM call spread (upper strikes)
+
+        Profits when stock stays between the short strikes. Defined risk
+        with premium collection from selling both spreads.
+
+        Args:
+            symbol: Stock symbol to process
+
+        Returns:
+            TradeResult with execution details
+        """
+        timestamp = datetime.now()
+
+        try:
+            # Get current market price
+            self.logger.log_info(f"Fetching current price for {symbol} (Iron Condor Strategy)")
+            current_price = self.broker_client.get_current_price(symbol)
+            self.logger.log_info(
+                f"Current price for {symbol}: ${current_price:.2f}",
+                {"symbol": symbol, "price": current_price, "strategy": "iron_condor"},
+            )
+
+            # Calculate expiration
+            expiration = self.iron_condor_calculator.calculate_expiration()
+
+            # Get number of contracts
+            num_contracts = self.config.ic_num_contracts
+
+            self.logger.log_info(
+                f"Iron Condor targets for {symbol}",
+                {
+                    "symbol": symbol,
+                    "put_spread_offset": f"{self.config.ic_put_spread_offset_percent}%",
+                    "call_spread_offset": f"{self.config.ic_call_spread_offset_percent}%",
+                    "spread_width": f"${self.config.ic_spread_width:.2f}",
+                    "expiration": expiration.isoformat(),
+                    "num_contracts": num_contracts,
+                },
+            )
+
+            # Get option chain
+            self.logger.log_info(f"Retrieving option chain for {symbol}")
+            option_chain = self.broker_client.get_option_chain(symbol, expiration)
+            available_strikes = sorted(list(set([contract.strike for contract in option_chain])))
+
+            self.logger.log_info(
+                f"Retrieved {len(available_strikes)} available strikes for {symbol}",
+                {"symbol": symbol, "strike_count": len(available_strikes)},
+            )
+
+            # Calculate strikes (put_long, put_short, call_short, call_long)
+            (
+                put_long_strike,
+                put_short_strike,
+                call_short_strike,
+                call_long_strike,
+            ) = self.iron_condor_calculator.calculate_strikes(current_price, available_strikes)
+
+            profit_range = call_short_strike - put_short_strike
+
+            self.logger.log_info(
+                f"Selected iron condor strikes for {symbol}",
+                {
+                    "symbol": symbol,
+                    "put_long_strike": f"${put_long_strike:.2f}",
+                    "put_short_strike": f"${put_short_strike:.2f}",
+                    "call_short_strike": f"${call_short_strike:.2f}",
+                    "call_long_strike": f"${call_long_strike:.2f}",
+                    "profit_range": f"${profit_range:.2f}",
+                    "expiration": expiration.isoformat(),
+                },
+            )
+
+            # Submit iron condor order
+            self.logger.log_info(f"Submitting iron condor order for {symbol}")
+            order_result = self.broker_client.submit_iron_condor_order(
+                symbol=symbol,
+                put_long_strike=put_long_strike,
+                put_short_strike=put_short_strike,
+                call_short_strike=call_short_strike,
+                call_long_strike=call_long_strike,
+                expiration=expiration,
+                num_contracts=num_contracts,
+            )
+
+            if order_result.success:
+                return TradeResult(
+                    symbol=symbol,
+                    success=True,
+                    order_id=order_result.order_id,
+                    short_strike=call_short_strike,  # Call short strike
+                    long_strike=put_short_strike,  # Put short strike
+                    expiration=expiration,
+                    quantity=num_contracts,
+                    filled_price=None,
+                    error_message=None,
+                    timestamp=timestamp,
+                )
+            else:
+                return TradeResult(
+                    symbol=symbol,
+                    success=False,
+                    order_id=None,
+                    short_strike=call_short_strike,
+                    long_strike=put_short_strike,
+                    expiration=expiration,
+                    quantity=num_contracts,
+                    filled_price=None,
+                    error_message=order_result.error_message,
+                    timestamp=timestamp,
+                )
+
+        except Exception as e:
+            error_msg = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            self.logger.log_error(
+                f"Unexpected error processing iron condor for {symbol}",
                 e,
                 {
                     "symbol": symbol,
