@@ -1,0 +1,21 @@
+{
+    "symbols": [
+        "AAPL"
+    ],
+    "strategy": "pc",
+    "strike_offset_percent": 5.0,
+    "spread_width": 5.0,
+    "contract_quantity": 1,
+    "execution_day": "Wednesday",
+    "execution_time_offset_minutes": 30,
+    "expiration_offset_weeks": 1,
+    "tradier": {
+        "api_token": "test_token",
+        "account_id": "test_account",
+        "base_url": "https://sandbox.tradier.com"
+    },
+    "logging": {
+        "level": "INFO",
+        "file_path": "logs/trading_bot_test.log"
+    }
+}

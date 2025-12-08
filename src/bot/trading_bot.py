@@ -178,6 +178,7 @@ class TradingBot:
                 num_contracts=self.config.ic_num_contracts,
             )
             strategy_names = {
+                "pc": "Protected Collar",
                 "pcs": "Put Credit Spread",
                 "cs": "Collar",
                 "cc": "Covered Call",
@@ -349,8 +350,12 @@ class TradingBot:
             try:
                 self.logger.log_info(f"Processing symbol: {symbol}")
 
+                self.logger.log_info(f"Processing symbol: {symbol}")
+
                 # Route to appropriate strategy
-                if self.config.strategy == "cs":  # Collar Strategy
+                if self.config.strategy == "pc":  # Protected Collar (alias for Collar)
+                    trade_result = self.process_collar_symbol(symbol)
+                elif self.config.strategy == "cs":  # Collar Strategy
                     trade_result = self.process_collar_symbol(symbol)
                 elif self.config.strategy == "cc":  # Covered Call Strategy
                     trade_result = self.process_covered_call_symbol(symbol)

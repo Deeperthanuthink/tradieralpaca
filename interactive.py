@@ -126,15 +126,17 @@ def select_strategy(symbol, shares_owned):
     print("  │ ws  │ Wheel Strategy   │ Auto-cycle puts/calls     │")
     print("  │ mp  │ Married Put      │ Buy shares + protective put│")
     print("  └─────┴──────────────────┴──────────────────────────┘")
-    
+
     print()
     print("🔹 STOCK-BASED STRATEGIES" + (" (Available)" if has_100_shares else " (Need 100+ shares)"))
+    status_pc = "✅" if has_100_shares else "❌"
     status_cs = "✅" if has_100_shares else "❌"
     status_cc = "✅" if has_100_shares else "❌"
     status_lcc = "✅" if has_100_shares else "❌"
     
     print("  ┌─────┬──────────────────┬──────────────────────────┐")
-    print(f"  │ cs  │ Collar Strategy {status_cs}│ Protective put + covered call│")
+    print(f"  │ pc  │ Protected Collar {status_pc}│ Protective put + covered call│")
+    print(f"  │ cs  │ Collar Strategy {status_cs} │ Legacy Collar Strategy       │")
     print(f"  │ cc  │ Covered Call {status_cc}   │ Sell call on owned shares    │")
     print(f"  │ lcc │ Laddered CC {status_lcc}    │ Multiple weekly covered calls│")
     print("  └─────┴──────────────────┴──────────────────────────┘")
@@ -163,10 +165,16 @@ def select_strategy(symbol, shares_owned):
     while True:
         try:
             choice = (
-                input("  Enter strategy (pcs/cs/cc/ws/lcc/dc/bf/mp/ls/ib/ss/ic): ").strip().lower()
+                input("  Enter strategy (pc/pcs/cs/cc/ws/lcc/dc/bf/mp/ls/ib/ss/ic): ").strip().lower()
             )
 
-            if choice == "pcs":
+            if choice == "pc":
+                if not has_100_shares:
+                    print(f"  ❌ Protected Collar requires 100+ shares. You have {shares_owned}.")
+                    continue
+                print("  ✅ Selected: Protected Collar")
+                return "pc"
+            elif choice == "pcs":
                 print("  ✅ Selected: Put Credit Spread")
                 return "pcs"
             elif choice == "cs":
@@ -217,7 +225,7 @@ def select_strategy(symbol, shares_owned):
                 return "ic"
             else:
                 print(
-                    "  ❌ Enter 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', 'bf', 'mp', 'ls', 'ib', 'ss', or 'ic'"
+                    "  ❌ Enter 'pc', 'pcs', 'cs', 'cc', 'ws', 'lcc', 'dc', 'bf', 'mp', 'ls', 'ib', 'ss', or 'ic'"
                 )
 
         except KeyboardInterrupt:
@@ -230,6 +238,7 @@ def confirm_execution(symbol, strategy, shares_owned):
     has_100_shares = shares_owned >= 100
 
     strategy_names = {
+        "pc": "Protected Collar",
         "pcs": "Put Credit Spread",
         "cs": "Collar Strategy",
         "cc": "Covered Call",
@@ -251,7 +260,7 @@ def confirm_execution(symbol, strategy, shares_owned):
     print()
     print(f"  Stock:      {symbol}")
     print(f"  Strategy:   {strategy_name}")
-    if strategy in ["cs", "cc"]:
+    if strategy in ["pc", "cs", "cc"]:
         contracts = shares_owned // 100
         print(f"  Shares:     {shares_owned} ({contracts} contract(s))")
     if strategy == "cc":
@@ -432,6 +441,7 @@ def execute_trade(symbol, strategy):
 
             if summary.successful_trades > 0:
                 strategy_names = {
+                    "pc": "Protected Collar",
                     "pcs": "Put Credit Spread",
                     "cs": "Collar",
                     "cc": "Covered Call",
